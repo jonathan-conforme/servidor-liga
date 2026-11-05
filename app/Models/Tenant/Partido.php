@@ -2,20 +2,21 @@
 
 namespace App\Models\Tenant;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use App\Traits\BelongsToTenant;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Partido extends Model
 {
-    use HasFactory, BelongsToTenant;
+    use BelongsToTenant, HasFactory;
 
     protected $guarded = ['id'];
 
     protected $casts = [
-        'fecha_partido'   => 'datetime',
-        'goles_local'     => 'integer',
+        'fecha_partido' => 'datetime',
+        'goles_local' => 'integer',
         'goles_visitante' => 'integer',
     ];
 
@@ -37,5 +38,12 @@ class Partido extends Model
     public function equipoVisitante(): BelongsTo
     {
         return $this->belongsTo(Equipo::class, 'equipo_visitante_id');
+    }
+
+    public function arbitros(): BelongsToMany
+    {
+        return $this->belongsToMany(Arbitro::class, 'partido_arbitro')
+            ->withPivot('rol', 'tenant_id')
+            ->withTimestamps();
     }
 }

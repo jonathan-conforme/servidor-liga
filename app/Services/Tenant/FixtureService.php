@@ -11,10 +11,42 @@ use Illuminate\Validation\ValidationException;
 
 class FixtureService
 {
-    public function generarFixture(int $torneoId): int
+
+/**
+ * Estado del fixture de un torneo (fuente única de la regla).
+ */
+public function estadoFixture(int $torneoId): array
+{
+    $existe = Partido::where('torneo_id', $torneoId)->exists();
+
+    $bloqueado = Partido::where('torneo_id', $torneoId)
+        ->where(function ($q) {
+            $q->where('estado', '!=', 'PROGRAMADO')
+              ->orWhereNotNull('goles_local')
+              ->orWhereNotNull('goles_visitante');
+        })->exists();
+
+    return ['existe' => $existe, 'bloqueado' => $bloqueado];
+}
+
+    public function generarFixture(int $torneoId, bool $regenerar = false): int
     {
-        return DB::transaction(function () use ($torneoId) {
-            $torneo = Torneo::findOrFail($torneoId);
+        return DB::transaction(function () use ($torneoId, $regenerar) {
+           $torneo = Torneo::lockForUpdate()->findOrFail($torneoId);
+
+        $estado = $this->estadoFixture($torneoId);
+
+        if ($estado['bloqueado']) {
+            throw ValidationException::withMessages([
+                'fixture' => 'No se puede regenerar: el torneo ya tiene partidos jugados o con marcador.',
+            ]);
+        }
+
+        if ($estado['existe'] && !$regenerar) {
+            throw ValidationException::withMessages([
+                'fixture' => 'El fixture ya fue generado para este torneo.',
+            ]);
+        }
 
             // Obtener IDs de equipos inscritos
             $equiposIds = EquipoTorneo::where('torneo_id', $torneoId)

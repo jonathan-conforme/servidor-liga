@@ -24,11 +24,11 @@ class UpdatePartidoRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'fecha_partido'   => ['nullable', 'date'],
-            'cancha'          => ['nullable', 'string', 'max:150'],
-            'goles_local'     => ['nullable', 'integer', 'min:0'],
-            'goles_visitante' => ['nullable', 'integer', 'min:0'],
-            'estado'          => ['required', 'string', Rule::in(['PROGRAMADO', 'EN_JUEGO', 'FINALIZADO', 'SUSPENDIDO'])],
+            'fecha_partido' => ['nullable', 'date'],
+            'cancha' => ['nullable', 'string', 'max:150'],
+            'goles_local' => ['nullable', 'required_if:estado,FINALIZADO', 'integer', 'min:0'],
+            'goles_visitante' => ['nullable', 'required_if:estado,FINALIZADO', 'integer', 'min:0'],
+            'estado' => ['required', 'string', Rule::in(['PROGRAMADO', 'EN_JUEGO', 'FINALIZADO', 'SUSPENDIDO'])],
         ];
     }
 }

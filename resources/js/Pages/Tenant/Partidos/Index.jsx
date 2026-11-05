@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Head, useForm, router } from '@inertiajs/react';
+import { Head, useForm, router, usePage } from '@inertiajs/react';
 import TenantLayout from '@/Layouts/TenantLayout';
 
 import Box from '@mui/material/Box';
@@ -23,8 +23,12 @@ import EditIcon from '@mui/icons-material/Edit';
 import SportsScoreIcon from '@mui/icons-material/SportsScore';
 import EventIcon from '@mui/icons-material/Event';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
+import AsignarArbitrosDialog from './AsignarArbitrosDialog';
+import GavelIcon from '@mui/icons-material/Gavel';
 
-export default function Index({ torneos = [], torneoSeleccionado = null, jornadasConPartidos = [] }) {
+export default function Index({ torneos = [], torneoSeleccionado = null, jornadasConPartidos = [], fixture = { existe: false, bloqueado: false }, arbitros = [] }) {
+    const { errors: pageErrors } = usePage().props;
+    const [arbitrosPartido, setArbitrosPartido] = useState(null);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [selectedPartido, setSelectedPartido] = useState(null);
 
@@ -40,10 +44,15 @@ export default function Index({ torneos = [], torneoSeleccionado = null, jornada
         router.get(route('tenant.partidos.index'), { torneo_id: e.target.value }, { preserveState: true });
     };
 
-    const handleGenerarFixture = () => {
-        if (confirm('¿Deseas generar el fixture automático? Esto creará las jornadas y partidos del torneo.')) {
+    const handleGenerarFixture = (regenerar = false) => {
+        const msg = regenerar
+            ? 'Esto BORRARÁ el fixture actual y creará uno nuevo con otro sorteo. ¿Continuar?'
+            : '¿Deseas generar el fixture automático? Esto creará las jornadas y partidos del torneo.';
+
+        if (confirm(msg)) {
             router.post(route('tenant.partidos.generar-fixture'), {
                 torneo_id: torneoSeleccionado.id,
+                regenerar,
             });
         }
     };
@@ -76,7 +85,9 @@ export default function Index({ torneos = [], torneoSeleccionado = null, jornada
     const submitUpdate = (e) => {
         e.preventDefault();
         put(route('tenant.partidos.update', selectedPartido.id), {
+            preserveScroll: true,
             onSuccess: () => closeEditModal(),
+            onError: (errs) => console.log('ERRORES:', errs),
         });
     };
 
@@ -93,6 +104,11 @@ export default function Index({ torneos = [], torneoSeleccionado = null, jornada
         <TenantLayout>
             <div className="p-6">
                 <Head title="Calendario de Partidos" />
+                {pageErrors?.fixture && (
+                    <div className="mb-4 p-3 rounded bg-red-50 border border-red-200 text-sm text-red-700">
+                        {pageErrors.fixture}
+                    </div>
+                )}
 
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                     <div>
@@ -115,15 +131,22 @@ export default function Index({ torneos = [], torneoSeleccionado = null, jornada
                             </Select>
                         </FormControl>
 
-                        {torneoSeleccionado && (
-                            <Button
-                                variant="contained"
-                                color="secondary"
-                                startIcon={<AutoRenewIcon />}
-                                onClick={handleGenerarFixture}
-                            >
+                        {torneoSeleccionado && !fixture.existe && (
+                            <Button variant="contained" color="secondary" startIcon={<AutoRenewIcon />}
+                                onClick={() => handleGenerarFixture(false)}>
                                 Generar Fixture
                             </Button>
+                        )}
+
+                        {torneoSeleccionado && fixture.existe && !fixture.bloqueado && (
+                            <Button variant="outlined" color="warning" startIcon={<AutoRenewIcon />}
+                                onClick={() => handleGenerarFixture(true)}>
+                                Regenerar Fixture
+                            </Button>
+                        )}
+
+                        {fixture.bloqueado && (
+                            <Chip label="Fixture bloqueado (hay partidos jugados)" color="info" size="small" />
                         )}
                     </Stack>
                 </div>
@@ -150,6 +173,13 @@ export default function Index({ torneos = [], torneoSeleccionado = null, jornada
                                             <span className="text-xs text-slate-500 flex items-center gap-1">
                                                 <EventIcon fontSize="inherit" /> {jornada.fecha_programada}
                                             </span>
+                                        )} {jornada.descansan?.length > 0 && (
+                                            <Chip
+                                                size="small"
+                                                variant="outlined"
+                                                color="warning"
+                                                label={`Descansa: ${jornada.descansan.map((e) => e.nombre).join(', ')}`}
+                                            />
                                         )}
                                     </div>
                                     <Chip label={jornada.estado} size="small" color={jornada.estado === 'FINALIZADA' ? 'success' : 'default'} />
@@ -177,6 +207,16 @@ export default function Index({ torneos = [], torneoSeleccionado = null, jornada
                                                             <LocationOnIcon fontSize="inherit" /> {partido.cancha}
                                                         </div>
                                                     )}
+
+                                                    {/* Árbitro principal */}
+                                                    {(() => {
+                                                        const principal = partido.arbitros?.find((a) => a.pivot.rol === 'PRINCIPAL');
+                                                        return principal ? (
+                                                            <div className="flex items-center gap-1">
+                                                                <GavelIcon fontSize="inherit" /> {principal.apellidos} {principal.nombres}
+                                                            </div>
+                                                        ) : null;
+                                                    })()}
                                                 </div>
 
                                                 {/* Marcador Versus */}
@@ -204,6 +244,9 @@ export default function Index({ torneos = [], torneoSeleccionado = null, jornada
                                                     <IconButton color="primary" size="small" onClick={() => openEditModal(partido)}>
                                                         <EditIcon fontSize="small" />
                                                     </IconButton>
+                                                    <IconButton color="secondary" size="small" onClick={() => setArbitrosPartido(partido)} title="Asignar árbitros">
+                                                        <GavelIcon fontSize="small" />
+                                                    </IconButton>
                                                 </div>
 
                                             </div>
@@ -227,7 +270,7 @@ export default function Index({ torneos = [], torneoSeleccionado = null, jornada
                                     label="Fecha y Hora del Partido"
                                     type="datetime-local"
                                     fullWidth
-                                    InputLabelProps={{ shrink: true }}
+                                    slotProps={{ inputLabel: { shrink: true } }}
                                     value={data.fecha_partido}
                                     onChange={(e) => setData('fecha_partido', e.target.value)}
                                     error={Boolean(errors.fecha_partido)}
@@ -258,6 +301,7 @@ export default function Index({ torneos = [], torneoSeleccionado = null, jornada
                                     </Select>
                                 </FormControl>
 
+
                                 <Stack direction="row" spacing={2}>
                                     <TextField
                                         label={`Goles ${selectedPartido?.equipo_local?.nombre || 'Local'}`}
@@ -279,6 +323,7 @@ export default function Index({ torneos = [], torneoSeleccionado = null, jornada
                                     />
                                 </Stack>
                             </Stack>
+
                         </DialogContent>
                         <DialogActions sx={{ px: 3, py: 2 }}>
                             <Button onClick={closeEditModal} disabled={processing}>Cancelar</Button>
@@ -288,6 +333,13 @@ export default function Index({ torneos = [], torneoSeleccionado = null, jornada
                         </DialogActions>
                     </Box>
                 </Dialog>
+                <AsignarArbitrosDialog
+                    open={Boolean(arbitrosPartido)}
+                    partido={arbitrosPartido}
+                    arbitros={arbitros}
+                    onClose={() => setArbitrosPartido(null)}
+                />
+
             </div>
         </TenantLayout>
     );

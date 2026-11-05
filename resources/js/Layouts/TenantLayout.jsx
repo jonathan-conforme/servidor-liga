@@ -48,6 +48,7 @@ export default function TenantLayout({ header, children }) {
         { name: 'Jornadas', route: 'tenant.jornadas.index', icon: <CalendarMonthOutlinedIcon fontSize="small" /> },
         { name: 'Inscripciones', route: 'tenant.inscripciones.index', icon: <HowToRegOutlinedIcon fontSize="small" /> },
         { name: 'Partidos', route: 'tenant.partidos.index', icon: <CalendarMonthOutlinedIcon fontSize="small" /> },
+        { name: 'Árbitros', route: 'tenant.arbitros.index', icon: <MilitaryTechOutlinedIcon fontSize="small" /> },
         { name: 'Tablas', route: 'dashboard', icon: <LeaderboardOutlinedIcon fontSize="small" /> },
         { name: 'Goleadores', route: 'dashboard', icon: <MilitaryTechOutlinedIcon fontSize="small" /> },
     ];

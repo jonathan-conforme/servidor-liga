@@ -13,6 +13,8 @@ use App\Http\Controllers\Tenant\JornadaController;
 use App\Http\Controllers\Tenant\JugadorController;
 use App\Http\Controllers\Tenant\TorneoController;
 use App\Http\Controllers\Tenant\PartidoController;
+use App\Http\Controllers\Tenant\ArbitroController;
+use App\Http\Controllers\Tenant\PartidoArbitroController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -107,6 +109,14 @@ Route::middleware(['auth', 'role:Administrador Liga|Editor|Operador'])
         // Generar Fixture
         Route::post('partidos/generar-fixture', [PartidoController::class, 'generarFixture'])
             ->name('partidos.generar-fixture');
+
+        // Recurso de Árbitros
+        Route::resource('arbitros', ArbitroController::class)
+            ->only(['index', 'store', 'update', 'destroy']);
+
+        // Rutas para asignar árbitros a partidos
+        Route::put('partidos/{partido}/arbitros', [PartidoArbitroController::class, 'sync'])
+        ->name('partidos.arbitros.sync');
 
     });
 
