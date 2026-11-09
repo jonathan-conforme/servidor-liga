@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-
+use Illuminate\Database\Eloquent\Relations\HasMany;
 class Partido extends Model
 {
     use BelongsToTenant, HasFactory;
@@ -46,4 +46,8 @@ class Partido extends Model
             ->withPivot('rol', 'tenant_id')
             ->withTimestamps();
     }
+    public function eventos(): HasMany
+{
+    return $this->hasMany(EventoPartido::class)->orderBy('id', 'asc');
+}
 }

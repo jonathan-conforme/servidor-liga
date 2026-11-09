@@ -29,6 +29,7 @@ return [
          */
 
         'role' => Role::class,
+        
 
     ],
 

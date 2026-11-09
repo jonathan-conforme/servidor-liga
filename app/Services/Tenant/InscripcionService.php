@@ -74,9 +74,11 @@ class InscripcionService
 
             // 3. GUARDAR PLANTILLA
             EquipoTorneoJugador::where('equipo_torneo_id', $equipoTorneoId)->delete();
-
+            // Obtener el tenant_id del usuario o de la sesión activa
+            $tenantId = auth()->user()->tenant_id;
             foreach ($jugadoresData as $item) {
                 EquipoTorneoJugador::create([
+                    'tenant_id'        => $tenantId,
                     'equipo_torneo_id' => $equipoTorneoId,
                     'jugador_id'       => $item['jugador_id'],
                     'numero_camiseta'  => $item['numero_camiseta'] ?? null,

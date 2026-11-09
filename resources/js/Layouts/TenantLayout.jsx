@@ -20,6 +20,7 @@ import MenuIcon from '@mui/icons-material/Menu';
 import CloseIcon from '@mui/icons-material/Close';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
+import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
 
 export default function TenantLayout({ header, children }) {
     // 1. Obtención segura de propiedades globales
@@ -39,19 +40,40 @@ export default function TenantLayout({ header, children }) {
             .toUpperCase();
     };
 
-    // 3. Estructura de navegación ajustada con iconos coherentes y la nueva ruta 'Inscripciones'
-    const navigationLinks = [
-        { name: 'Categorías', route: 'tenant.categorias.index', icon: <CategoryOutlinedIcon fontSize="small" /> },
-        { name: 'Torneos', route: 'tenant.torneos.index', icon: <EmojiEventsOutlinedIcon fontSize="small" /> },
-        { name: 'Equipos', route: 'tenant.equipos.index', icon: <GroupsOutlinedIcon fontSize="small" /> },
-        { name: 'Jugadores', route: 'tenant.jugadores.index', icon: <PersonOutlinedIcon fontSize="small" /> },
-        { name: 'Jornadas', route: 'tenant.jornadas.index', icon: <CalendarMonthOutlinedIcon fontSize="small" /> },
-        { name: 'Inscripciones', route: 'tenant.inscripciones.index', icon: <HowToRegOutlinedIcon fontSize="small" /> },
-        { name: 'Partidos', route: 'tenant.partidos.index', icon: <CalendarMonthOutlinedIcon fontSize="small" /> },
-        { name: 'Árbitros', route: 'tenant.arbitros.index', icon: <MilitaryTechOutlinedIcon fontSize="small" /> },
-        { name: 'Tablas', route: 'dashboard', icon: <LeaderboardOutlinedIcon fontSize="small" /> },
-        { name: 'Goleadores', route: 'dashboard', icon: <MilitaryTechOutlinedIcon fontSize="small" /> },
-    ];
+ // 1. Obtención de roles y permisos desde las props globales de Inertia
+const { roles = [], permissions = [] } = usePage().props.auth ?? {};
+
+// 2. Helper de verificación de permisos
+const puede = (permiso) => {
+    if (roles.includes('Super Admin') || roles.includes('Administrador Liga')) return true;
+    return permissions.includes(permiso);
+};
+
+// 3. Estructura del menú vinculada exactamente con el backend
+const navigationLinks = [
+    { name: 'Categorías',    route: 'tenant.categorias.index',    icon: <CategoryOutlinedIcon fontSize="small" />, perm: 'categorias.ver' },
+    { name: 'Torneos',       route: 'tenant.torneos.index',       icon: <EmojiEventsOutlinedIcon fontSize="small" />, perm: 'torneos.ver' },
+    { name: 'Equipos',       route: 'tenant.equipos.index',       icon: <GroupsOutlinedIcon fontSize="small" />, perm: 'equipos.ver' },
+    { name: 'Jugadores',     route: 'tenant.jugadores.index',     icon: <PersonOutlinedIcon fontSize="small" />, perm: 'jugadores.ver' },
+    { name: 'Jornadas',      route: 'tenant.jornadas.index',      icon: <CalendarMonthOutlinedIcon fontSize="small" />, perm: 'jornadas.ver' },
+    { name: 'Inscripciones', route: 'tenant.inscripciones.index', icon: <HowToRegOutlinedIcon fontSize="small" />, perm: 'inscripciones.ver' },
+    { name: 'Partidos',      route: 'tenant.partidos.index',      icon: <CalendarMonthOutlinedIcon fontSize="small" />, perm: 'partidos.ver' },
+    { name: 'Árbitros',      route: 'tenant.arbitros.index',      icon: <MilitaryTechOutlinedIcon fontSize="small" />, perm: 'arbitros.ver' },
+    { name: 'Usuarios',      route: 'tenant.usuarios.index',      icon: <ManageAccountsOutlinedIcon fontSize="small" />, requiredRole: 'Administrador Liga' },
+    { name: 'Tablas',        route: 'tenant.tablas.index',        icon: <LeaderboardOutlinedIcon fontSize="small" />, perm: 'partidos.ver'},
+    { name: 'Goleadores',    route: 'tenant.goleadores.index',     icon: <MilitaryTechOutlinedIcon fontSize="small" />, perm: 'partidos.ver' },
+].filter((link) => {
+    // Si el elemento requiere un rol específico (como la sección de Usuarios)
+    if (link.requiredRole) {
+        return roles.includes(link.requiredRole) || roles.includes('Super Admin');
+    }
+    // Si el elemento requiere un permiso específico
+    if (link.perm) {
+        return puede(link.perm);
+    }
+    // Si no especifica restricción (Tablas, Goleadores), se muestra a cualquier usuario autenticado
+    return true;
+});
 
     return (
         <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
@@ -90,7 +112,7 @@ export default function TenantLayout({ header, children }) {
                         {!tenantSinSuscripcion ? (
                             navigationLinks.map((link) => {
                                 // Soporta resaltado en sub-rutas usando comodines
-                                const active = route().current(link.route) || route().current(`${link.route}.*`);
+                               const active = route().current(link.route) || route().current(`${link.route.replace('.index', '')}.*`);
                                 return (
                                     <Link
                                         key={link.name}

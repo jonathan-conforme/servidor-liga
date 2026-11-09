@@ -6,16 +6,20 @@ use App\Http\Controllers\SuperAdmin\PagoController;
 use App\Http\Controllers\SuperAdmin\PlanController;
 use App\Http\Controllers\SuperAdmin\SuscripcionController;
 use App\Http\Controllers\SuperAdmin\TenantController;
+use App\Http\Controllers\Tenant\ArbitroController;
 use App\Http\Controllers\Tenant\CategoriaController;
 use App\Http\Controllers\Tenant\EquipoController;
 use App\Http\Controllers\Tenant\InscripcionController;
 use App\Http\Controllers\Tenant\JornadaController;
 use App\Http\Controllers\Tenant\JugadorController;
-use App\Http\Controllers\Tenant\TorneoController;
-use App\Http\Controllers\Tenant\PartidoController;
-use App\Http\Controllers\Tenant\ArbitroController;
 use App\Http\Controllers\Tenant\PartidoArbitroController;
+use App\Http\Controllers\Tenant\PartidoController;
+use App\Http\Controllers\Tenant\TorneoController;
+use App\Http\Controllers\Tenant\UsuarioController;
 use Illuminate\Foundation\Application;
+use App\Http\Controllers\Tenant\GoleadorController;
+use App\Http\Controllers\Tenant\EventoPartidoController;
+use App\Http\Controllers\Tenant\TablaPosicionesController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -28,9 +32,7 @@ Route::get('/', function () {
     ]);
 });
 
-Route::get('/dashboard', DashboardController::class)->middleware([
-    'auth',
-    'verified'])->name('dashboard');
+Route::get('/dashboard', DashboardController::class)->middleware(['auth', 'verified'])->name('dashboard');
 
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
@@ -81,59 +83,77 @@ Route::middleware(['auth', 'role:Administrador Liga|Editor|Operador'])
     ->group(function () {
 
         Route::get('/dashboard', fn () => Inertia::render('Tenant/Dashboard'))->name('dashboard');
-        // RUTAS DE CATEGORÍAS (Excluimos vistas de formularios porque usaremos modales)
-        Route::resource('categorias', CategoriaController::class)->except(['create', 'show', 'edit']);
-        Route::resource('equipos', EquipoController::class)->except(['create', 'show', 'edit']);
-        // Forzamos a Laravel a mapear el parámetro singular correcto de jugadores como 'jugador'
-        Route::resource('jugadores', JugadorController::class)
-            ->except(['create', 'show', 'edit'])
-            ->parameters(['jugadores' => 'jugador']);
 
-        Route::resource('torneos', TorneoController::class)->except(['create', 'edit']);
+        // CATEGORÍAS
+        Route::resource('categorias', CategoriaController::class)->only(['index'])->middleware('permission:categorias.ver');
+        Route::resource('categorias', CategoriaController::class)->only(['store', 'update', 'destroy'])->middleware('permission:categorias.editar');
 
-        // RECURSO DE INSCRIPCIONES (Cubre Index, Store y Destroy)
-        Route::resource('inscripciones', InscripcionController::class)->only(['index', 'store', 'destroy']);
+        // EQUIPOS
+        Route::resource('equipos', EquipoController::class)->only(['index'])->middleware('permission:equipos.ver');
+        Route::resource('equipos', EquipoController::class)->only(['store', 'update', 'destroy'])->middleware('permission:equipos.editar');
 
-        // RUTA ADICIONAL PARA EL FICHAJE DE JUGADORES
-        Route::post('inscripciones/roster', [InscripcionController::class, 'storeRoster'])
-            ->name('inscripciones.roster.store');
+        // JUGADORES
+        Route::resource('jugadores', JugadorController::class)->parameters(['jugadores' => 'jugador'])
+            ->only(['index'])->middleware('permission:jugadores.ver');
+        Route::resource('jugadores', JugadorController::class)->parameters(['jugadores' => 'jugador'])
+            ->only(['store', 'update', 'destroy'])->middleware('permission:jugadores.editar');
+
+        // TORNEOS
+        Route::resource('torneos', TorneoController::class)->only(['index', 'show'])->middleware('permission:torneos.ver');
+        Route::resource('torneos', TorneoController::class)->only(['store', 'update', 'destroy'])->middleware('permission:torneos.editar');
+
+        // INSCRIPCIONES
         Route::get('inscripciones/buscar-jugadores', [InscripcionController::class, 'buscarJugadoresDisponibles'])
-            ->name('inscripciones.buscar-jugadores');
+            ->middleware('permission:inscripciones.ver')->name('inscripciones.buscar-jugadores');
+        Route::resource('inscripciones', InscripcionController::class)->only(['index'])->middleware('permission:inscripciones.ver');
+        Route::resource('inscripciones', InscripcionController::class)->only(['store', 'destroy'])->middleware('permission:inscripciones.editar');
+        Route::post('inscripciones/roster', [InscripcionController::class, 'storeRoster'])
+            ->middleware('permission:inscripciones.editar')->name('inscripciones.roster.store');
 
-        Route::resource('jornadas', JornadaController::class)
-            ->only(['index', 'update']);
+        // JORNADAS
+        Route::resource('jornadas', JornadaController::class)->only(['index'])->middleware('permission:jornadas.ver');
+        Route::resource('jornadas', JornadaController::class)->only(['update'])->middleware('permission:jornadas.editar');
 
-        // Recurso de Partidos
-        Route::resource('partidos', PartidoController::class)->only(['index', 'update']);
-
-        // Generar Fixture
+        // PARTIDOS
+        Route::get('partidos', [PartidoController::class, 'index'])
+            ->middleware('permission:partidos.ver')->name('partidos.index');
+        Route::put('partidos/{partido}', [PartidoController::class, 'update'])
+            ->middleware('permission:partidos.editar')->name('partidos.update');
         Route::post('partidos/generar-fixture', [PartidoController::class, 'generarFixture'])
-            ->name('partidos.generar-fixture');
-
-        // Recurso de Árbitros
-        Route::resource('arbitros', ArbitroController::class)
-            ->only(['index', 'store', 'update', 'destroy']);
-
-        // Rutas para asignar árbitros a partidos
+            ->middleware('permission:partidos.fixture')->name('partidos.generar-fixture');
         Route::put('partidos/{partido}/arbitros', [PartidoArbitroController::class, 'sync'])
-        ->name('partidos.arbitros.sync');
+            ->middleware('permission:partidos.arbitros')->name('partidos.arbitros.sync');
 
-    });
+        // Panel en vivo 
+        Route::middleware('permission:partidos.en_vivo')->group(function () {
+        Route::get('partidos/{partido}/en-vivo', [EventoPartidoController::class, 'show'])->name('partidos.en-vivo');
+        Route::post('partidos/{partido}/eventos', [EventoPartidoController::class, 'store'])->name('partidos.eventos.store');
+        Route::delete('partidos/{partido}/eventos/{evento}', [EventoPartidoController::class, 'destroy'])->name('partidos.eventos.destroy');
+         });
+        
+        //tablas de posisiones
+       // TABLA DE POSICIONES
+        Route::get('tablas', [TablaPosicionesController::class, 'index'])
+            ->middleware('permission:partidos.ver')
+            ->name('tablas.index');
 
-Route::middleware([
-    'auth',
-    'role:Delegado',
-])
-    ->prefix('portal')
-    ->name('portal.')
-    ->group(function () {
+                // TABLA DE GOLEADORES
+        Route::get('goleadores', [GoleadorController::class, 'index'])
+            ->middleware('permission:partidos.ver')
+            ->name('goleadores.index');
 
-        Route::get(
-            '/dashboard',
-            fn () => Inertia::render(
-                'Portal/Dashboard'
-            )
-        )->name('dashboard');
 
+
+        // ÁRBITROS
+        Route::resource('arbitros', ArbitroController::class)->only(['index'])->middleware('permission:arbitros.ver');
+        Route::resource('arbitros', ArbitroController::class)->only(['store', 'update', 'destroy'])->middleware('permission:arbitros.editar');
+
+        // USUARIOS: solo el administrador de la liga
+        Route::middleware('role:Administrador Liga')->group(function () {
+            Route::resource('usuarios', UsuarioController::class)
+                ->only(['index', 'store', 'update'])
+                ->parameters(['usuarios' => 'usuario']);
+            Route::patch('usuarios/{usuario}/estado', [UsuarioController::class, 'estado'])->name('usuarios.estado');
+        });
     });
 require __DIR__.'/auth.php';

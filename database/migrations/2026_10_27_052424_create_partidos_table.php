@@ -24,7 +24,7 @@ return new class extends Migration
 
             $table->unsignedSmallInteger('goles_local')->nullable();
             $table->unsignedSmallInteger('goles_visitante')->nullable();
-            $table->enum('estado', ['PROGRAMADO', 'EN_JUEGO', 'FINALIZADO', 'SUSPENDIDO'])->default('PROGRAMADO');
+            $table->enum('estado', ['PROGRAMADO', 'EN_JUEGO', 'ENTRETIEMPO', 'FINALIZADO', 'SUSPENDIDO'])->default('PROGRAMADO');
             $table->timestamps();
         });
     }

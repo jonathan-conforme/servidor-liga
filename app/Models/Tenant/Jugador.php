@@ -4,16 +4,17 @@ namespace App\Models\Tenant;
 
 use App\Enums\PosicionJugador;
 use App\Traits\BelongsToTenant;
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 
 class Jugador extends Model
 {
-    use HasFactory, BelongsToTenant;
+    use BelongsToTenant, HasFactory;
 
     protected $table = 'jugadores';
-    protected $appends = ['edad'];
+
+    protected $appends = ['edad', 'nombre_completo'];
 
     protected $guarded = ['id'];
 
@@ -24,8 +25,19 @@ class Jugador extends Model
     ];
 
     public function getEdadAttribute(): int
-{
-    // Carbon hace la magia de restar la fecha de nacimiento con la fecha de hoy
-    return Carbon::parse($this->fecha_nacimiento)->age;
-}
+    {
+        // Carbon hace la magia de restar la fecha de nacimiento con la fecha de hoy
+        return Carbon::parse($this->fecha_nacimiento)->age;
+    }
+
+    /**
+     * Devuelve nombres y apellidos concatenados
+     */
+    public function getNombreCompletoAttribute(): string
+    {
+        $nombres = $this->nombres ?? $this->nombre ?? '';
+        $apellidos = $this->apellidos ?? '';
+
+        return trim("{$nombres} {$apellidos}");
+    }
 }

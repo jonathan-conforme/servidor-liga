@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Head, useForm, router, usePage } from '@inertiajs/react';
+import { Head, useForm, router, usePage, Link } from '@inertiajs/react';
 import TenantLayout from '@/Layouts/TenantLayout';
-
+import SportsSoccerIcon from '@mui/icons-material/SportsSoccer';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
@@ -247,6 +247,19 @@ export default function Index({ torneos = [], torneoSeleccionado = null, jornada
                                                     <IconButton color="secondary" size="small" onClick={() => setArbitrosPartido(partido)} title="Asignar árbitros">
                                                         <GavelIcon fontSize="small" />
                                                     </IconButton>
+                                                    <td className="px-4 py-3 text-right space-x-2">
+    {/* Botón para ir al panel En Vivo */}
+    <Link
+        href={route('tenant.partidos.en-vivo', partido.id)}
+        className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-xl border border-emerald-200 transition-colors"
+        title="Abrir panel en vivo"
+    >
+        <SportsSoccerIcon fontSize="small" />
+        <span>En vivo</span>
+    </Link>
+
+    {/* Tus otros botones (Editar, Borrar, Asignar árbitros, etc.) */}
+</td>
                                                 </div>
 
                                             </div>
