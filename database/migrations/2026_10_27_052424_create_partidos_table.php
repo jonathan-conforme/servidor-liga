@@ -18,7 +18,10 @@ return new class extends Migration
             $table->foreignId('jornada_id')->constrained('jornadas')->onDelete('cascade'); // <-- Enlace a la Jornada
             $table->foreignId('equipo_local_id')->constrained('equipos')->onDelete('cascade');
             $table->foreignId('equipo_visitante_id')->constrained('equipos')->onDelete('cascade');
+            $table->foreignId('categoria_id')->nullable()->constrained('categorias')->nullOnDelete();
+            $table->foreignId('grupo_id')->nullable()->constrained('grupos')->nullOnDelete();
 
+            $table->string('fase', 20)->default('REGULAR');
             $table->dateTime('fecha_partido')->nullable(); // Hora exacta del cotejo
             $table->string('cancha')->nullable();
 
@@ -26,6 +29,8 @@ return new class extends Migration
             $table->unsignedSmallInteger('goles_visitante')->nullable();
             $table->enum('estado', ['PROGRAMADO', 'EN_JUEGO', 'ENTRETIEMPO', 'FINALIZADO', 'SUSPENDIDO'])->default('PROGRAMADO');
             $table->timestamps();
+
+            $table->index(['torneo_id', 'categoria_id', 'grupo_id']);
         });
     }
 

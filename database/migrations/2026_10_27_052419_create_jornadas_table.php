@@ -15,8 +15,11 @@ return new class extends Migration
             $table->id();
             $table->foreignId('tenant_id')->constrained('tenants')->onDelete('cascade');
             $table->foreignId('torneo_id')->constrained('torneos')->onDelete('cascade');
+            $table->foreignId('categoria_id')->nullable()->constrained('categorias')->nullOnDelete();
 
             $table->unsignedInteger('numero'); // 1, 2, 3...
+            $table->string('fase', 20)->default('REGULAR'); // REGULAR, GRUPOS, CUARTOS, SEMIFINAL, FINAL
+
             $table->string('nombre')->nullable(); // "Jornada 1", "Fecha Inaugural"
             $table->date('fecha_programada')->nullable(); // Ej: Domingo 15 de Noviembre
 
@@ -25,6 +28,8 @@ return new class extends Migration
 
             $table->text('motivo_suspension')->nullable(); // Ej: "Inclemencia del tiempo / Lluvia"
             $table->timestamps();
+
+            $table->index(['torneo_id', 'categoria_id', 'numero']);
         });
     }
 

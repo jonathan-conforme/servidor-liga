@@ -2,8 +2,10 @@
 
 namespace App\Services\Tenant;
 
-use App\Models\Tenant\Torneo;
 use App\Models\Tenant\EquipoTorneo;
+use App\Models\Tenant\Partido;
+use App\Models\Tenant\Grupo;
+use App\Models\Tenant\Torneo;
 use Illuminate\Support\Facades\DB;
 
 class TorneoService
@@ -12,7 +14,7 @@ class TorneoService
     {
         return Torneo::withCount('equipoTorneos')
             ->latest()
-            ->paginate(10);
+            ->paginate(15);
     }
 
     public function create(array $data): Torneo
@@ -21,14 +23,22 @@ class TorneoService
         $data['tenant_id'] = auth()->user()->tenant_id;
         $data['estado'] = $data['estado'] ?? 'BORRADOR';
 
-        return Torneo::create($data);
+        return DB::transaction(function () use ($data) {
+            $torneo = Torneo::create($data);
+            $this->sincronizarGrupos($torneo);
+
+        return $torneo;
+         });
     }
 
     public function update(Torneo $torneo, array $data): Torneo
     {
-        $torneo->update($data);
+        return DB::transaction(function () use ($torneo, $data) {
+            $torneo->update($data);
+            $this->sincronizarGrupos($torneo->fresh());
 
-        return $torneo;
+            return $torneo;
+        });
     }
 
     public function destroy(Torneo $torneo): void
@@ -55,5 +65,32 @@ class TorneoService
                 );
             }
         });
+    }
+    /**
+     * Crea Grupo A, B, C... según cantidad_grupos y borra los sobrantes.
+     * Con fixture generado no toca nada.
+     */
+    private function sincronizarGrupos(Torneo $torneo): void
+    {
+        if (Partido::where('torneo_id', $torneo->id)->exists()) {
+            return;
+        }
+
+        $n = $torneo->tipo_competicion === 'GRUPOS_ELIMINACION'
+            ? (int) $torneo->cantidad_grupos
+            : 0;
+
+        $existentes = Grupo::where('torneo_id', $torneo->id)->orderBy('id')->get();
+
+        for ($i = $existentes->count(); $i < $n; $i++) {
+            Grupo::create([
+                'tenant_id' => $torneo->tenant_id,
+                'torneo_id' => $torneo->id,
+                'nombre'    => 'Grupo ' . chr(65 + $i),
+            ]);
+        }
+
+        // Los equipos de un grupo borrado quedan sin grupo (nullOnDelete)
+        $existentes->slice($n)->each->delete();
     }
 }

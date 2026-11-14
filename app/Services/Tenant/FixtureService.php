@@ -2,155 +2,181 @@
 
 namespace App\Services\Tenant;
 
-use App\Models\Tenant\Torneo;
 use App\Models\Tenant\EquipoTorneo;
 use App\Models\Tenant\Jornada;
 use App\Models\Tenant\Partido;
+use App\Models\Tenant\Torneo;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class FixtureService
 {
+    public function estadoFixture(int $torneoId): array
+    {
+        $existe = Partido::where('torneo_id', $torneoId)->exists();
 
-/**
- * Estado del fixture de un torneo (fuente única de la regla).
- */
-public function estadoFixture(int $torneoId): array
-{
-    $existe = Partido::where('torneo_id', $torneoId)->exists();
+        $bloqueado = Partido::where('torneo_id', $torneoId)
+            ->where(function ($q) {
+                $q->where('estado', '!=', 'PROGRAMADO')
+                  ->orWhereNotNull('goles_local')
+                  ->orWhereNotNull('goles_visitante');
+            })->exists();
 
-    $bloqueado = Partido::where('torneo_id', $torneoId)
-        ->where(function ($q) {
-            $q->where('estado', '!=', 'PROGRAMADO')
-              ->orWhereNotNull('goles_local')
-              ->orWhereNotNull('goles_visitante');
-        })->exists();
-
-    return ['existe' => $existe, 'bloqueado' => $bloqueado];
-}
+        return ['existe' => $existe, 'bloqueado' => $bloqueado];
+    }
 
     public function generarFixture(int $torneoId, bool $regenerar = false): int
     {
         return DB::transaction(function () use ($torneoId, $regenerar) {
-           $torneo = Torneo::lockForUpdate()->findOrFail($torneoId);
+            $torneo = Torneo::lockForUpdate()->findOrFail($torneoId);
+            $estado = $this->estadoFixture($torneoId);
 
-        $estado = $this->estadoFixture($torneoId);
+            if ($estado['bloqueado']) {
+                throw ValidationException::withMessages([
+                    'fixture' => 'No se puede regenerar: el torneo ya tiene partidos jugados o con marcador.',
+                ]);
+            }
 
-        if ($estado['bloqueado']) {
-            throw ValidationException::withMessages([
-                'fixture' => 'No se puede regenerar: el torneo ya tiene partidos jugados o con marcador.',
-            ]);
-        }
+            if ($estado['existe'] && ! $regenerar) {
+                throw ValidationException::withMessages(['fixture' => 'El fixture ya fue generado para este torneo.']);
+            }
 
-        if ($estado['existe'] && !$regenerar) {
-            throw ValidationException::withMessages([
-                'fixture' => 'El fixture ya fue generado para este torneo.',
-            ]);
-        }
+            if ($torneo->tipo_competicion === 'ELIMINACION_DIRECTA') {
+                throw ValidationException::withMessages([
+                    'fixture' => 'La eliminación directa todavía no está soportada.',
+                ]);
+            }
 
-            // Obtener IDs de equipos inscritos
-            $equiposIds = EquipoTorneo::where('torneo_id', $torneoId)
-                ->pluck('equipo_id')
-                ->toArray();
+            $esGrupos = $torneo->tipo_competicion === 'GRUPOS_ELIMINACION';
+            $fase     = $esGrupos ? 'GRUPOS' : 'REGULAR';
 
-            if (count($equiposIds) < 2) {
+            $porCategoria = EquipoTorneo::where('torneo_id', $torneoId)->get()->groupBy('categoria_id');
+
+            if ($porCategoria->flatten()->count() < 2) {
                 throw ValidationException::withMessages([
                     'fixture' => 'Se necesitan al menos 2 equipos inscritos para generar el fixture.',
                 ]);
             }
 
-            // Limpiar partidos y jornadas previas si se regenera
+            if ($esGrupos && $porCategoria->flatten()->contains(fn ($i) => ! $i->grupo_id)) {
+                throw ValidationException::withMessages([
+                    'fixture' => 'Hay equipos sin grupo. Sortea o asigna los grupos antes de generar el fixture.',
+                ]);
+            }
+
             Partido::where('torneo_id', $torneoId)->delete();
             Jornada::where('torneo_id', $torneoId)->delete();
 
-            // Mezclar aleatoriamente para el sorteo
-            shuffle($equiposIds);
+            $total = 0;
 
-            // Calcular cruces con Algoritmo de Berger / Round Robin
-            $fechasGeneradas = $this->calcularRoundRobin($equiposIds, $torneo->ida_vuelta ?? false);
-            $totalPartidos = 0;
+            foreach ($porCategoria as $categoriaId => $inscripciones) {
+                if ($inscripciones->count() < 2) {
+                    continue;
+                }
 
-            foreach ($fechasGeneradas as $numeroFecha => $partidosDeLaFecha) {
-                // 1. Crear la Jornada
-                $jornada = Jornada::create([
-                    'torneo_id' => $torneoId,
-                    'numero'    => $numeroFecha,
-                    'nombre'    => "Jornada {$numeroFecha}",
-                    'estado'    => 'PROGRAMADA',
-                ]);
+                $bloques  = $esGrupos ? $inscripciones->groupBy('grupo_id') : collect([0 => $inscripciones]);
+                $porRonda = [];
 
-                // 2. Crear los Partidos asociados a esa Jornada
-                foreach ($partidosDeLaFecha as $p) {
-                    Partido::create([
-                        'torneo_id'           => $torneoId,
-                        'jornada_id'          => $jornada->id,
-                        'equipo_local_id'     => $p['local'],
-                        'equipo_visitante_id' => $p['visitante'],
-                        'estado'              => 'PROGRAMADO',
+                foreach ($bloques as $grupoId => $miembros) {
+                    if ($miembros->count() < 2) {
+                        throw ValidationException::withMessages([
+                            'fixture' => 'Hay un grupo con menos de 2 equipos. Reparte los equipos de nuevo.',
+                        ]);
+                    }
+
+                    $rondas = $this->calcularRoundRobin(
+                        $miembros->pluck('equipo_id')->shuffle()->all(),
+                        (bool) $torneo->ida_vuelta
+                    );
+
+                    foreach ($rondas as $numero => $partidos) {
+                        foreach ($partidos as $p) {
+                            $porRonda[$numero][] = $p + ['grupo_id' => $esGrupos ? $grupoId : null];
+                        }
+                    }
+                }
+
+                ksort($porRonda);
+
+                foreach ($porRonda as $numero => $partidos) {
+                    $jornada = Jornada::create([
+                        'torneo_id'    => $torneoId,
+                        'categoria_id' => $categoriaId,
+                        'numero'       => $numero,
+                        'nombre'       => "Jornada {$numero}",
+                        'fase'         => $fase,
+                        'estado'       => 'PROGRAMADA',
                     ]);
-                    $totalPartidos++;
+
+                    foreach ($partidos as $p) {
+                        Partido::create([
+                            'torneo_id'           => $torneoId,
+                            'jornada_id'          => $jornada->id,
+                            'categoria_id'        => $categoriaId,
+                            'grupo_id'            => $p['grupo_id'],
+                            'fase'                => $fase,
+                            'equipo_local_id'     => $p['local'],
+                            'equipo_visitante_id' => $p['visitante'],
+                            'estado'              => 'PROGRAMADO',
+                        ]);
+                        $total++;
+                    }
                 }
             }
 
             $torneo->update(['estado' => 'EN_CURSO']);
 
-            return $totalPartidos;
+            return $total;
         });
     }
 
-    private function calcularRoundRobin(array $equipos, bool $idaYVuelta = false): array
+    /** Devuelve [numeroRonda => [['local'=>id,'visitante'=>id], ...]] empezando en 1. */
+    private function calcularRoundRobin(array $equipos, bool $idaYVuelta): array
     {
         if (count($equipos) % 2 !== 0) {
-            $equipos[] = null; // Equipo 'null' representa descanso
+            $equipos[] = null;
         }
 
-        $totalEquipos = count($equipos);
-        $totalRondas = $totalEquipos - 1;
-        $partidosPorRonda = $totalEquipos / 2;
+        $n = count($equipos);
+        $rondasIda = [];
 
-        $fechasIda = [];
+        for ($r = 0; $r < $n - 1; $r++) {
+            $partidos = [];
 
-        for ($ronda = 0; $ronda < $totalRondas; $ronda++) {
-            $partidosRonda = [];
+            for ($i = 0; $i < $n / 2; $i++) {
+                $a = $equipos[$i];
+                $b = $equipos[$n - 1 - $i];
 
-            for ($i = 0; $i < $partidosPorRonda; $i++) {
-                $local = $equipos[$i];
-                $visitante = $equipos[$totalEquipos - 1 - $i];
-
-                if ($local !== null && $visitante !== null) {
-                    if ($ronda % 2 === 1) {
-                        $partidosRonda[] = ['local' => $visitante, 'visitante' => $local];
-                    } else {
-                        $partidosRonda[] = ['local' => $local, 'visitante' => $visitante];
-                    }
+                if ($a === null || $b === null) {
+                    continue;
                 }
+
+                $partidos[] = $r % 2 === 1
+                    ? ['local' => $b, 'visitante' => $a]
+                    : ['local' => $a, 'visitante' => $b];
             }
 
-            $fechasIda[$ronda + 1] = $partidosRonda;
+            $rondasIda[$r + 1] = $partidos;
 
             $ultimo = array_pop($equipos);
             array_splice($equipos, 1, 0, [$ultimo]);
         }
 
-        if (!$idaYVuelta) {
-            return $fechasIda;
+        if (! $idaYVuelta) {
+            return $rondasIda;
         }
 
-        $fechasVuelta = [];
-        $numeroFechaActual = $totalRondas + 1;
+        $todas  = $rondasIda;
+        $numero = count($rondasIda);
 
-        foreach ($fechasIda as $partidosVuelta1) {
-            $partidosInvertidos = [];
-            foreach ($partidosVuelta1 as $partido) {
-                $partidosInvertidos[] = [
-                    'local'     => $partido['visitante'],
-                    'visitante' => $partido['local'],
-                ];
-            }
-            $fechasVuelta[$numeroFechaActual] = $partidosInvertidos;
-            $numeroFechaActual++;
+        foreach ($rondasIda as $partidos) {
+            $numero++;
+            $todas[$numero] = array_map(
+                fn ($p) => ['local' => $p['visitante'], 'visitante' => $p['local']],
+                $partidos
+            );
         }
 
-        return $fechasIda + $fechasVuelta;
+        return $todas;
     }
 }

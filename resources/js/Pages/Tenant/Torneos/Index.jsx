@@ -29,6 +29,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
+import Alert from '@mui/material/Alert';
 
 export default function Index({ auth, torneos }) {
     // Desestructuramos la paginación de Laravel
@@ -346,32 +347,43 @@ export default function Index({ auth, torneos }) {
                                     )}
                                 </Stack>
 
-                                {data.tipo_competicion === 'GRUPOS_ELIMINACION' && (
-                                    <Stack direction="row" spacing={2}>
-                                        <TextField
-                                            id="cantidad_grupos"
-                                            label="Cantidad de Grupos"
-                                            type="number"
-                                            variant="outlined"
-                                            fullWidth
-                                            value={data.cantidad_grupos}
-                                            onChange={(e) => setData('cantidad_grupos', e.target.value)}
-                                            error={!!errors.cantidad_grupos}
-                                            helperText={errors.cantidad_grupos}
-                                        />
-                                        <TextField
-                                            id="clasificados_por_grupo"
-                                            label="Clasificados por Grupo"
-                                            type="number"
-                                            variant="outlined"
-                                            fullWidth
-                                            value={data.clasificados_por_grupo}
-                                            onChange={(e) => setData('clasificados_por_grupo', e.target.value)}
-                                            error={!!errors.clasificados_por_grupo}
-                                            helperText={errors.clasificados_por_grupo}
-                                        />
-                                    </Stack>
-                                )}
+                               {data.tipo_competicion === 'GRUPOS_ELIMINACION' && (() => {
+    const total = Number(data.cantidad_grupos) * Number(data.clasificados_por_grupo);
+    const valido = total >= 2 && (total & (total - 1)) === 0;
+    const ronda = { 2: 'Final', 4: 'Semifinales', 8: 'Cuartos de final', 16: 'Octavos de final' }[total];
+
+    return (
+        <Stack spacing={1.5}>
+            <Stack direction="row" spacing={2}>
+                <TextField
+                    label="Cantidad de Grupos"
+                    type="number"
+                    fullWidth
+                    slotProps={{ htmlInput: { min: 2, max: 26 } }}
+                    value={data.cantidad_grupos}
+                    onChange={(e) => setData('cantidad_grupos', e.target.value)}
+                    error={!!errors.cantidad_grupos}
+                    helperText={errors.cantidad_grupos}
+                />
+                <TextField
+                    label="Clasifican por Grupo"
+                    type="number"
+                    fullWidth
+                    slotProps={{ htmlInput: { min: 1, max: 4 } }}
+                    value={data.clasificados_por_grupo}
+                    onChange={(e) => setData('clasificados_por_grupo', e.target.value)}
+                    error={!!errors.clasificados_por_grupo}
+                    helperText={errors.clasificados_por_grupo}
+                />
+            </Stack>
+            <Alert severity={valido ? 'success' : 'warning'}>
+                {valido
+                    ? `${total} equipos pasan a la fase final, empieza en ${ronda}.`
+                    : `${total || 0} equipos no forman llaves. Usa un total de 2, 4, 8 o 16.`}
+            </Alert>
+        </Stack>
+    );
+})()}
 
                                 <div className="border-t pt-2">
                                     <h4 className="text-sm font-semibold text-gray-700 mb-2">Reglas de Juego</h4>
