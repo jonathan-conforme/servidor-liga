@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Head, useForm, router } from '@inertiajs/react';
+import React, { useState, useEffect } from 'react'; // [PAGINACIÓN BACKEND] Se agrega useEffect
+import { Head, useForm, router, usePage } from '@inertiajs/react';
 import TenantLayout from '@/Layouts/TenantLayout';
 
 import Box from '@mui/material/Box';
@@ -21,34 +21,25 @@ import Chip from '@mui/material/Chip';
 import FormHelperText from '@mui/material/FormHelperText';
 import InputAdornment from '@mui/material/InputAdornment';
 import Alert from '@mui/material/Alert';
+import TablePagination from '@mui/material/TablePagination'; // [PAGINACIÓN BACKEND] Paginador de MUI
 
 import SportsFootballIcon from '@mui/icons-material/SportsFootball';
 import GroupsIcon from '@mui/icons-material/Groups';
 import DeleteIcon from '@mui/icons-material/Delete';
 import BadgeIcon from '@mui/icons-material/Badge';
 import SearchIcon from '@mui/icons-material/Search';
-
-// Función para calcular edad exacta
-const calcularEdad = (fechaNacimiento) => {
-    if (!fechaNacimiento) return null;
-    const hoy = new Date();
-    const cumple = new Date(fechaNacimiento);
-    let edad = hoy.getFullYear() - cumple.getFullYear();
-    const mes = hoy.getMonth() - cumple.getMonth();
-    if (mes < 0 || (mes === 0 && hoy.getDate() < cumple.getDate())) {
-        edad--;
-    }
-    return edad;
-};
+import ShuffleIcon from '@mui/icons-material/Shuffle';
 
 export default function Index({
     torneos = [],
     torneoSeleccionado = null,
     inscripciones = [],
+    grupos = [],
     equipos = [],
     categorias = [],
-    jugadoresMaestros = []
 }) {
+    const { errors: pageErrors = {} } = usePage().props;
+
     const [isEquipoModalOpen, setIsEquipoModalOpen] = useState(false);
     const [isRosterModalOpen, setIsRosterModalOpen] = useState(false);
     const [selectedInscripcion, setSelectedInscripcion] = useState(null);
@@ -56,14 +47,25 @@ export default function Index({
     const [searchJugador, setSearchJugador] = useState('');
     const [isSavingRoster, setIsSavingRoster] = useState(false);
     const [rosterError, setRosterError] = useState('');
+    const [isSortingGrupos, setIsSortingGrupos] = useState(false);
+    const [updatingGrupoId, setUpdatingGrupoId] = useState(null);
+
+    // [PAGINACIÓN BACKEND] Estados para controlar la página del servidor y mantener seleccionados en memoria
+    const [rosterRows, setRosterRows] = useState([]);
+    const [rosterTotal, setRosterTotal] = useState(0);
+    const [rosterPage, setRosterPage] = useState(0); // Base 0 para MUI; se envía +1 a Laravel
+    const [rosterRowsPerPage, setRosterRowsPerPage] = useState(10);
+    const [loadingRoster, setLoadingRoster] = useState(false);
+    const [selectedMap, setSelectedMap] = useState({}); // { [jugador_id]: { jugador_id, numero_camiseta } }
+
+    const esTorneoDeGrupos = torneoSeleccionado?.tipo_competicion === 'GRUPOS_ELIMINACION';
 
     const equipoForm = useForm({
         torneo_id: torneoSeleccionado?.id || '',
         equipo_id: '',
         categoria_id: '',
+        grupo_id: '',
     });
-
-    const [rosterData, setRosterData] = useState([]);
 
     const handleTorneoChange = (e) => {
         router.get(route('tenant.inscripciones.index'), { torneo_id: e.target.value }, { preserveState: true });
@@ -76,6 +78,7 @@ export default function Index({
             torneo_id: torneoSeleccionado?.id || '',
             equipo_id: '',
             categoria_id: '',
+            grupo_id: '',
         });
         setIsEquipoModalOpen(true);
     };
@@ -101,143 +104,181 @@ export default function Index({
         }
     };
 
-    // --- ACCIONES PLANTILLA / ROSTER ---
+    // --- ACCIONES DE GRUPOS ---
+    const handleSortearGrupos = () => {
+        if (!torneoSeleccionado) return;
+
+        const hayGruposAsignados = inscripciones.some((item) => Boolean(item.grupo_id));
+        if (
+            hayGruposAsignados &&
+            !confirm('Ya existen equipos con grupo asignado. ¿Deseas volver a sortear y reemplazar la distribución actual?')
+        ) {
+            return;
+        }
+
+        setIsSortingGrupos(true);
+        router.post(
+            route('tenant.inscripciones.sortear-grupos'),
+            { torneo_id: torneoSeleccionado.id },
+            {
+                preserveScroll: true,
+                onFinish: () => setIsSortingGrupos(false),
+            }
+        );
+    };
+
+    const handleAsignarGrupo = (inscripcionId, nuevoGrupoId) => {
+        setUpdatingGrupoId(inscripcionId);
+        router.patch(
+            route('tenant.inscripciones.asignar-grupo', inscripcionId),
+            { grupo_id: nuevoGrupoId === '' ? null : nuevoGrupoId },
+            {
+                preserveScroll: true,
+                onFinish: () => setUpdatingGrupoId(null),
+            }
+        );
+    };
+
+    // --- ACCIONES PLANTILLA / ROSTER (PAGINACIÓN EN SERVIDOR) ---
+    // [PAGINACIÓN BACKEND] Consulta una página específica al controlador
+    const fetchRosterPage = async (inscripcionId, pageZeroBased = 0, perPage = 10, search = '') => {
+        setLoadingRoster(true);
+        try {
+            const { data } = await window.axios.get(
+                route('tenant.inscripciones.roster.jugadores', inscripcionId),
+                {
+                    params: {
+                        page: pageZeroBased + 1,
+                        per_page: perPage,
+                        search,
+                    },
+                }
+            );
+            setRosterRows(data.data || []);
+            setRosterTotal(Number(data.total ?? 0));
+        } finally {
+            setLoadingRoster(false);
+        }
+    };
+
     const openRosterModal = (inscripcion) => {
         setSelectedInscripcion(inscripcion);
         setSearchJugador('');
         setRosterError('');
+        setRosterPage(0); // [PAGINACIÓN BACKEND] Reinicia a la página 1
 
-        const categoria = inscripcion.categoria;
-        const edadMin = categoria?.edad_min;
-        const edadMax = categoria?.edad_max;
-
-        // Map de jugadores ocupados por otros equipos en la misma categoría
-        const ocupadosPorOtros = new Map();
-        (inscripciones || []).forEach(otherIns => {
-            if (otherIns.id !== inscripcion.id && otherIns.categoria_id === inscripcion.categoria_id) {
-                (otherIns.jugadores || []).forEach(j => {
-                    ocupadosPorOtros.set(j.id, otherIns.equipo?.nombre || 'Otro equipo');
-                });
-            }
-        });
-
-        const jugadoresInscritos = inscripcion.jugadores || [];
-        const actualMap = new Map(jugadoresInscritos.map(j => [j.id, j.pivot?.numero_camiseta]));
-
-        const initialRoster = jugadoresMaestros.map(j => {
-            const equipoOcupante = ocupadosPorOtros.get(j.id);
-            const edad = calcularEdad(j.fecha_nacimiento);
-
-            let noAptoPorEdad = false;
-            let motivoEdad = '';
-
-            if (edad !== null) {
-                if (edadMin !== null && edadMin !== '' && edad < edadMin) {
-                    noAptoPorEdad = true;
-                    motivoEdad = `Mínimo ${edadMin} años (${edad} a.)`;
-                } else if (edadMax !== null && edadMax !== '' && edad > edadMax) {
-                    noAptoPorEdad = true;
-                    motivoEdad = `Máximo ${edadMax} años (${edad} a.)`;
-                }
-            }
-
-            return {
+        // [PAGINACIÓN BACKEND] Precarga en memoria los jugadores ya fichados para no perderlos al paginar
+        const inicial = {};
+        (inscripcion.jugadores || []).forEach((j) => {
+            inicial[j.id] = {
                 jugador_id: j.id,
-                nombre_completo: `${j.apellidos || ''} ${j.nombres || ''}`.trim(),
-                cedula: j.cedula !== null && j.cedula !== undefined ? String(j.cedula).trim() : '',
-                edad: edad,
-                posicion: j.posicion || '',
-                selected: actualMap.has(j.id),
-                numero_camiseta: actualMap.get(j.id) ?? '',
-                ocupadoPor: equipoOcupante || null,
-                noAptoPorEdad: noAptoPorEdad,
-                motivoEdad: motivoEdad,
+                numero_camiseta: j.pivot?.numero_camiseta ?? '',
             };
         });
-
-        setRosterData(initialRoster);
+        setSelectedMap(inicial);
         setIsRosterModalOpen(true);
     };
+
+    // [PAGINACIÓN BACKEND] Dispara la carga al abrir, cambiar página, cambiar tamaño o buscar (con debounce)
+    useEffect(() => {
+        if (!isRosterModalOpen || !selectedInscripcion) return;
+
+        const delay = searchJugador ? 300 : 0;
+        const timer = setTimeout(() => {
+            fetchRosterPage(selectedInscripcion.id, rosterPage, rosterRowsPerPage, searchJugador);
+        }, delay);
+
+        return () => clearTimeout(timer);
+    }, [isRosterModalOpen, selectedInscripcion, rosterPage, rosterRowsPerPage, searchJugador]);
 
     const closeRosterModal = () => {
         setIsRosterModalOpen(false);
         setSelectedInscripcion(null);
+        setRosterRows([]);
     };
 
+    // [PAGINACIÓN BACKEND] Marca o desmarca en el mapa persistente sin importar en qué página esté
     const handleToggleJugador = (id) => {
-        setRosterData(prev => prev.map(item =>
-            item.jugador_id === id ? { ...item, selected: !item.selected } : item
-        ));
+        setSelectedMap((prev) => {
+            const copia = { ...prev };
+            if (copia[id]) {
+                delete copia[id];
+            } else {
+                copia[id] = { jugador_id: id, numero_camiseta: '' };
+            }
+            return copia;
+        });
     };
 
+    // [PAGINACIÓN BACKEND] Actualiza el dorsal en el mapa persistente
     const handleDorsalChange = (id, value) => {
-        setRosterData(prev => prev.map(item =>
-            item.jugador_id === id ? { ...item, numero_camiseta: value } : item
-        ));
+        setSelectedMap((prev) => ({
+            ...prev,
+            [id]: {
+                jugador_id: id,
+                numero_camiseta: value,
+            },
+        }));
     };
 
     const submitRoster = () => {
         setIsSavingRoster(true);
         setRosterError('');
 
-        const seleccionados = rosterData
-            .filter(item => item.selected && !item.ocupadoPor && !item.noAptoPorEdad)
-            .map(item => ({
-                jugador_id: item.jugador_id,
-                numero_camiseta: item.numero_camiseta !== '' && item.numero_camiseta !== null
+        // [PAGINACIÓN BACKEND] Envía todos los jugadores acumulados en selectedMap de todas las páginas
+        const seleccionados = Object.values(selectedMap).map((item) => ({
+            jugador_id: item.jugador_id,
+            numero_camiseta:
+                item.numero_camiseta !== '' && item.numero_camiseta !== null
                     ? parseInt(item.numero_camiseta, 10)
                     : null,
-            }));
+        }));
 
-        router.post(route('tenant.inscripciones.roster.store'), {
-            equipo_torneo_id: selectedInscripcion.id,
-            jugadores: seleccionados,
-        }, {
-            onSuccess: () => {
-                setIsRosterModalOpen(false);
-                setIsSavingRoster(false);
+        router.post(
+            route('tenant.inscripciones.roster.store'),
+            {
+                equipo_torneo_id: selectedInscripcion.id,
+                jugadores: seleccionados,
             },
-            onError: (errors) => {
-                setIsSavingRoster(false);
-                if (errors.jugadores) {
-                    setRosterError(Array.isArray(errors.jugadores) ? errors.jugadores[0] : errors.jugadores);
-                }
-            },
-            onFinish: () => {
-                setIsSavingRoster(false);
+            {
+                onSuccess: () => {
+                    setIsRosterModalOpen(false);
+                    setIsSavingRoster(false);
+                },
+                onError: (errors) => {
+                    setIsSavingRoster(false);
+                    if (errors.jugadores) {
+                        setRosterError(Array.isArray(errors.jugadores) ? errors.jugadores[0] : errors.jugadores);
+                    }
+                },
+                onFinish: () => {
+                    setIsSavingRoster(false);
+                },
             }
-        });
+        );
     };
 
-    const filteredRoster = rosterData.filter(j => {
-        if (!searchJugador.trim()) return true;
-
-        const query = searchJugador.trim().toLowerCase();
-        const queryClean = query.replace(/^0+/, '');
-
-        const nombre = (j.nombre_completo || '').toLowerCase();
-        const cedulaOriginal = j.cedula ? String(j.cedula).trim().toLowerCase() : '';
-        const cedulaClean = cedulaOriginal.replace(/^0+/, '');
-
-        return (
-            nombre.includes(query) ||
-            cedulaOriginal.includes(query) ||
-            (queryClean !== '' && cedulaClean.includes(queryClean))
-        );
-    });
+    // [PAGINACIÓN BACKEND] Total de jugadores seleccionados acumulados en todas las páginas
+    const totalSeleccionados = Object.keys(selectedMap).length;
 
     return (
         <TenantLayout>
             <div className="p-6">
                 <Head title="Inscripciones y Plantillas" />
 
+                {pageErrors.grupos && (
+                    <Alert severity="error" sx={{ mb: 3 }}>
+                        {Array.isArray(pageErrors.grupos) ? pageErrors.grupos[0] : pageErrors.grupos}
+                    </Alert>
+                )}
+
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                     <div>
                         <h1 className="text-2xl font-bold text-gray-800">Inscripciones y Plantillas</h1>
-                        <p className="text-sm text-gray-500">Asigna equipos y gestiona los dorsales de los jugadores por torneo</p>
+                        <p className="text-sm text-gray-500">Asigna equipos, grupos y dorsales de los jugadores por torneo</p>
                     </div>
 
-                    <Stack direction="row" spacing={2}>
+                    <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
                         <FormControl size="small" sx={{ minWidth: 220 }}>
                             <InputLabel id="select-torneo-label">Torneo Seleccionado</InputLabel>
                             <Select
@@ -247,10 +288,24 @@ export default function Index({
                                 onChange={handleTorneoChange}
                             >
                                 {torneos.map((t) => (
-                                    <MenuItem key={t.id} value={t.id}>{t.nombre} ({t.anio})</MenuItem>
+                                    <MenuItem key={t.id} value={t.id}>
+                                        {`${t.nombre} (${t.anio})`}
+                                    </MenuItem>
                                 ))}
                             </Select>
                         </FormControl>
+
+                        {esTorneoDeGrupos && (
+                            <Button
+                                variant="outlined"
+                                color="secondary"
+                                startIcon={<ShuffleIcon />}
+                                onClick={handleSortearGrupos}
+                                disabled={!torneoSeleccionado || inscripciones.length === 0 || isSortingGrupos}
+                            >
+                                {isSortingGrupos ? 'Sorteando...' : 'Sortear Grupos'}
+                            </Button>
+                        )}
 
                         <Button
                             variant="contained"
@@ -270,6 +325,9 @@ export default function Index({
                             <tr className="bg-gray-200 text-gray-600 uppercase text-sm leading-normal">
                                 <th className="py-3 px-6 text-left">Equipo</th>
                                 <th className="py-3 px-6 text-left">Categoría</th>
+                                {esTorneoDeGrupos && (
+                                    <th className="py-3 px-6 text-left">Grupo</th>
+                                )}
                                 <th className="py-3 px-6 text-center">Plantilla Fichada</th>
                                 <th className="py-3 px-6 text-center">Acciones</th>
                             </tr>
@@ -277,7 +335,7 @@ export default function Index({
                         <tbody className="text-gray-600 text-sm font-light">
                             {!torneoSeleccionado || inscripciones.length === 0 ? (
                                 <tr>
-                                    <td colSpan="4" className="py-10 text-center text-gray-500">
+                                    <td colSpan={esTorneoDeGrupos ? 5 : 4} className="py-10 text-center text-gray-500">
                                         No hay equipos inscritos en este torneo aún.
                                     </td>
                                 </tr>
@@ -295,6 +353,31 @@ export default function Index({
                                         <td className="py-3 px-6 text-left">
                                             <Chip label={item.categoria?.nombre || 'General'} size="small" color="info" variant="outlined" />
                                         </td>
+                                        {esTorneoDeGrupos && (
+                                            <td className="py-3 px-6 text-left">
+                                                <FormControl size="small" sx={{ minWidth: 140 }}>
+                                                    <Select
+                                                        displayEmpty
+                                                        value={item.grupo_id ?? ''}
+                                                        disabled={updatingGrupoId === item.id}
+                                                        onChange={(e) => handleAsignarGrupo(item.id, e.target.value)}
+                                                        sx={{
+                                                            bgcolor: item.grupo_id ? 'background.paper' : '#fffbeb',
+                                                            fontSize: '0.875rem',
+                                                        }}
+                                                    >
+                                                        <MenuItem value="">
+                                                            <em className="text-amber-700 not-italic">Sin grupo</em>
+                                                        </MenuItem>
+                                                        {grupos.map((g) => (
+                                                            <MenuItem key={g.id} value={g.id}>
+                                                                {g.nombre}
+                                                            </MenuItem>
+                                                        ))}
+                                                    </Select>
+                                                </FormControl>
+                                            </td>
+                                        )}
                                         <td className="py-3 px-6 text-center">
                                             <Chip
                                                 icon={<GroupsIcon />}
@@ -363,6 +446,28 @@ export default function Index({
                                         <FormHelperText>{equipoForm.errors.categoria_id}</FormHelperText>
                                     )}
                                 </FormControl>
+
+                                {esTorneoDeGrupos && (
+                                    <FormControl fullWidth error={Boolean(equipoForm.errors.grupo_id)}>
+                                        <InputLabel id="select-grupo-modal-label">Grupo (Opcional)</InputLabel>
+                                        <Select
+                                            labelId="select-grupo-modal-label"
+                                            value={equipoForm.data.grupo_id}
+                                            label="Grupo (Opcional)"
+                                            onChange={(e) => equipoForm.setData('grupo_id', e.target.value)}
+                                        >
+                                            <MenuItem value="">
+                                                <em>Sin grupo (asignar o sortear después)</em>
+                                            </MenuItem>
+                                            {grupos.map((g) => (
+                                                <MenuItem key={g.id} value={g.id}>{g.nombre}</MenuItem>
+                                            ))}
+                                        </Select>
+                                        {equipoForm.errors.grupo_id && (
+                                            <FormHelperText>{equipoForm.errors.grupo_id}</FormHelperText>
+                                        )}
+                                    </FormControl>
+                                )}
                             </Stack>
                         </DialogContent>
                         <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -379,7 +484,17 @@ export default function Index({
                 {/* MODAL PLANTILLA ROSTER */}
                 <Dialog open={isRosterModalOpen} onClose={closeRosterModal} fullWidth maxWidth="md">
                     <DialogTitle>
-                        Plantilla de Jugadores: {selectedInscripcion?.equipo?.nombre} ({selectedInscripcion?.categoria?.nombre || 'General'})
+                        {/* [PAGINACIÓN BACKEND] Muestra contador total de seleccionados en todas las páginas */}
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span>
+                                Plantilla de Jugadores: {selectedInscripcion?.equipo?.nombre} ({selectedInscripcion?.categoria?.nombre || 'General'})
+                            </span>
+                            <Chip
+                                label={`${totalSeleccionados} Seleccionados`}
+                                color="primary"
+                                size="small"
+                            />
+                        </div>
                     </DialogTitle>
                     <DialogContent dividers>
                         {rosterError && (
@@ -396,7 +511,11 @@ export default function Index({
                                 size="small"
                                 placeholder="Buscar por nombre o cédula..."
                                 value={searchJugador}
-                                onChange={(e) => setSearchJugador(e.target.value)}
+                                onChange={(e) => {
+                                    // [PAGINACIÓN BACKEND] Reinicia a página 0 al cambiar la búsqueda
+                                    setSearchJugador(e.target.value);
+                                    setRosterPage(0);
+                                }}
                                 InputProps={{
                                     startAdornment: (
                                         <InputAdornment position="start">
@@ -408,7 +527,7 @@ export default function Index({
                             />
                         </div>
 
-                        <div className="max-h-96 overflow-y-auto">
+                        <div className="max-h-96 overflow-y-auto border rounded-t">
                             <table className="min-w-full w-full">
                                 <thead className="sticky top-0 bg-gray-100 shadow-sm z-10">
                                     <tr className="text-xs text-gray-600">
@@ -420,57 +539,86 @@ export default function Index({
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredRoster.length === 0 ? (
+                                    {/* [PAGINACIÓN BACKEND] Estado de carga y filas devueltas por el servidor */}
+                                    {loadingRoster ? (
+                                        <tr>
+                                            <td colSpan="5" className="p-6 text-center text-gray-500 text-sm">
+                                                Cargando jugadores...
+                                            </td>
+                                        </tr>
+                                    ) : rosterRows.length === 0 ? (
                                         <tr>
                                             <td colSpan="5" className="p-6 text-center text-gray-500 text-sm">
                                                 No se encontraron jugadores.
                                             </td>
                                         </tr>
                                     ) : (
-                                        filteredRoster.map((j) => (
-                                            <tr key={j.jugador_id} className={`border-b ${(j.ocupadoPor || j.noAptoPorEdad) ? 'bg-gray-50 opacity-75' : 'hover:bg-gray-50'}`}>
-                                                <td className="p-2">
-                                                    <Checkbox
-                                                        checked={j.selected}
-                                                        disabled={Boolean(j.ocupadoPor) || j.noAptoPorEdad}
-                                                        onChange={() => handleToggleJugador(j.jugador_id)}
-                                                        color="primary"
-                                                    />
-                                                </td>
-                                                <td className="p-2 font-medium text-gray-800">
-                                                    {j.nombre_completo}
-                                                    {j.edad !== null && (
-                                                        <span className="text-xs text-gray-400 block font-normal">
-                                                            {j.edad} años
-                                                        </span>
-                                                    )}
-                                                </td>
-                                                <td className="p-2 text-xs text-gray-500">{j.cedula || 'N/A'}</td>
-                                                <td className="p-2 text-xs">
-                                                    {j.ocupadoPor ? (
-                                                        <Chip label={`En: ${j.ocupadoPor}`} size="small" color="error" variant="outlined" />
-                                                    ) : j.noAptoPorEdad ? (
-                                                        <Chip label={j.motivoEdad} size="small" color="warning" variant="outlined" />
-                                                    ) : (
-                                                        <span className="text-xs text-emerald-600 font-medium">Disponible</span>
-                                                    )}
-                                                </td>
-                                                <td className="p-2 text-center">
-                                                    <TextField
-                                                        size="small"
-                                                        type="number"
-                                                        disabled={!j.selected || Boolean(j.ocupadoPor) || j.noAptoPorEdad}
-                                                        value={j.numero_camiseta}
-                                                        onChange={(e) => handleDorsalChange(j.jugador_id, e.target.value)}
-                                                        inputProps={{ style: { textAlign: 'center' } }}
-                                                    />
-                                                </td>
-                                            </tr>
-                                        ))
+                                        rosterRows.map((j) => {
+                                            const isSelected = Boolean(selectedMap[j.jugador_id]); // [PAGINACIÓN BACKEND] Lee estado del mapa persistente
+                                            const dorsalActual = selectedMap[j.jugador_id]?.numero_camiseta ?? ''; // [PAGINACIÓN BACKEND] Lee dorsal del mapa persistente
+
+                                            return (
+                                                <tr key={j.jugador_id} className={`border-b ${(j.ocupadoPor || j.noAptoPorEdad) ? 'bg-gray-50 opacity-75' : 'hover:bg-gray-50'}`}>
+                                                    <td className="p-2">
+                                                        <Checkbox
+                                                            checked={isSelected}
+                                                            disabled={Boolean(j.ocupadoPor) || j.noAptoPorEdad}
+                                                            onChange={() => handleToggleJugador(j.jugador_id)}
+                                                            color="primary"
+                                                        />
+                                                    </td>
+                                                    <td className="p-2 font-medium text-gray-800">
+                                                        {j.nombre_completo}
+                                                        {j.edad !== null && (
+                                                            <span className="text-xs text-gray-400 block font-normal">
+                                                                {j.edad} años
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                    <td className="p-2 text-xs text-gray-500">{j.cedula || 'N/A'}</td>
+                                                    <td className="p-2 text-xs">
+                                                        {j.ocupadoPor ? (
+                                                            <Chip label={`En: ${j.ocupadoPor}`} size="small" color="error" variant="outlined" />
+                                                        ) : j.noAptoPorEdad ? (
+                                                            <Chip label={j.motivoEdad} size="small" color="warning" variant="outlined" />
+                                                        ) : (
+                                                            <span className="text-xs text-emerald-600 font-medium">Disponible</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="p-2 text-center">
+                                                        <TextField
+                                                            size="small"
+                                                            type="number"
+                                                            disabled={!isSelected || Boolean(j.ocupadoPor) || j.noAptoPorEdad}
+                                                            value={dorsalActual}
+                                                            onChange={(e) => handleDorsalChange(j.jugador_id, e.target.value)}
+                                                            inputProps={{ style: { textAlign: 'center' } }}
+                                                        />
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })
                                     )}
                                 </tbody>
                             </table>
                         </div>
+
+                        {/* [PAGINACIÓN BACKEND] Controles de paginación conectados al total del servidor */}
+                        <TablePagination
+                            component="div"
+                            count={rosterTotal}
+                            page={rosterPage}
+                            onPageChange={(event, newPage) => setRosterPage(newPage)}
+                            rowsPerPage={rosterRowsPerPage}
+                            onRowsPerPageChange={(event) => {
+                                setRosterRowsPerPage(parseInt(event.target.value, 10));
+                                setRosterPage(0);
+                            }}
+                            rowsPerPageOptions={[10, 20, 50]}
+                            labelRowsPerPage="Jugadores por página:"
+                            labelDisplayedRows={({ from, to, count }) => `${from}–${to} de ${count}`}
+                            className="border-x border-b rounded-b bg-gray-50"
+                        />
                     </DialogContent>
                     <DialogActions sx={{ px: 3, py: 2 }}>
                         <Button onClick={closeRosterModal} disabled={isSavingRoster}>

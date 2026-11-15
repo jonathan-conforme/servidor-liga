@@ -10,7 +10,7 @@ class JugadorService
     /**
      * Listar jugadores paginados y ordenados por apellidos
      */
-    public function index(int $perPage = 10): LengthAwarePaginator
+    public function index(int $perPage = 15): LengthAwarePaginator
     {
         return Jugador::orderBy('apellidos', 'asc')
             ->orderBy('nombres', 'asc')

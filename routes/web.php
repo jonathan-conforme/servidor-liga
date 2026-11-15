@@ -109,6 +109,12 @@ Route::middleware(['auth', 'role:Administrador Liga|Editor|Operador'])
         Route::resource('inscripciones', InscripcionController::class)->only(['store', 'destroy'])->middleware('permission:inscripciones.editar');
         Route::post('inscripciones/roster', [InscripcionController::class, 'storeRoster'])
             ->middleware('permission:inscripciones.editar')->name('inscripciones.roster.store');
+        Route::post('inscripciones/sortear-grupos', [InscripcionController::class, 'sortearGrupos'])
+            ->middleware('permission:inscripciones.editar')->name('inscripciones.sortear-grupos');
+        Route::patch('inscripciones/{inscripcion}/grupo', [InscripcionController::class, 'asignarGrupo'])
+            ->middleware('permission:inscripciones.editar')->name('inscripciones.asignar-grupo');
+        Route::get('/inscripciones/{inscripcion}/jugadores', [InscripcionController::class, 'jugadoresRoster'])
+            ->name('inscripciones.roster.jugadores');
 
         // JORNADAS
         Route::resource('jornadas', JornadaController::class)->only(['index'])->middleware('permission:jornadas.ver');
@@ -123,14 +129,18 @@ Route::middleware(['auth', 'role:Administrador Liga|Editor|Operador'])
             ->middleware('permission:partidos.fixture')->name('partidos.generar-fixture');
         Route::put('partidos/{partido}/arbitros', [PartidoArbitroController::class, 'sync'])
             ->middleware('permission:partidos.arbitros')->name('partidos.arbitros.sync');
+        Route::post('partidos/generar-playoffs', [PartidoController::class, 'generarPlayoffs'])
+            ->middleware('permission:partidos.fixture')->name('partidos.generar-playoffs');
+        Route::delete('partidos/deshacer-playoffs', [PartidoController::class, 'deshacerPlayoffs'])
+            ->middleware('permission:partidos.fixture')->name('partidos.deshacer-playoffs');
 
-        // Panel en vivo 
+        // Panel en vivo
         Route::middleware('permission:partidos.en_vivo')->group(function () {
         Route::get('partidos/{partido}/en-vivo', [EventoPartidoController::class, 'show'])->name('partidos.en-vivo');
         Route::post('partidos/{partido}/eventos', [EventoPartidoController::class, 'store'])->name('partidos.eventos.store');
         Route::delete('partidos/{partido}/eventos/{evento}', [EventoPartidoController::class, 'destroy'])->name('partidos.eventos.destroy');
          });
-        
+
         //tablas de posisiones
        // TABLA DE POSICIONES
         Route::get('tablas', [TablaPosicionesController::class, 'index'])

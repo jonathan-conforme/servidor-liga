@@ -2,15 +2,17 @@
 
 namespace App\Http\Requests\Tenant\Torneo;
 
+use App\Http\Requests\Tenant\Torneo\Concerns\ValidaFormatoTorneo;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Validator;
 use Illuminate\Validation\Rule;
 use App\Models\Tenant\Partido;
-use App\Http\Requests\Tenant\Torneo\Concerns\ValidaFormatoTorneo;
-use Illuminate\Validation\Validator;
 
 class UpdateTorneoRequest extends FormRequest
 {
+    use ValidaFormatoTorneo;
+    
     public function authorize(): bool
     {
         return true;

@@ -7,6 +7,7 @@ use App\Models\Tenant\Torneo;
 use App\Models\Tenant\Equipo;
 use App\Models\Tenant\Categoria;
 use App\Models\Tenant\EquipoTorneo;
+use App\Services\Tenant\GrupoService;
 use App\Models\Tenant\Jugador;
 use App\Http\Requests\Tenant\Inscripcion\StoreInscripcionEquipoRequest;
 use App\Http\Requests\Tenant\Inscripcion\StoreRosterRequest;
@@ -17,10 +18,12 @@ use Inertia\Inertia;
 class InscripcionController extends Controller
 {
     protected InscripcionService $service;
+    protected GrupoService $grupoService;
 
-    public function __construct(InscripcionService $service)
+    public function __construct(InscripcionService $service, GrupoService $grupoService)
     {
         $this->service = $service;
+        $this->grupoService = $grupoService;
     }
 
     public function index(Request $request)
@@ -35,12 +38,16 @@ class InscripcionController extends Controller
             $inscripciones = EquipoTorneo::with(['equipo', 'categoria', 'grupo', 'jugadores'])
                 ->where('torneo_id', $torneoSeleccionado->id)
                 ->get();
+                if ($torneoSeleccionado->tipo_competicion === 'GRUPOS_ELIMINACION' && (int) $torneoSeleccionado->cantidad_grupos >= 2) {
+                $grupos = $this->grupoService->asegurarGrupos($torneoSeleccionado);
+            }
         }
 
         return Inertia::render('Tenant/Inscripciones/Index', [
             'torneos'            => $torneos,
             'torneoSeleccionado' => $torneoSeleccionado,
             'inscripciones'      => $inscripciones,
+            'grupos'             => $grupos ?? null,
             'equipos'            => Equipo::where('activo', true)->get(),
             'categorias'         => Categoria::where('activo', true)->get(),
             'jugadoresMaestros'  => Jugador::orderBy('apellidos', 'asc')
@@ -68,6 +75,29 @@ class InscripcionController extends Controller
         );
         return back()->with('success', 'Plantilla de jugadores actualizada.');
     }
+    public function sortearGrupos(Request $request)
+    {
+        $request->validate([
+            'torneo_id' => ['required', 'integer', 'exists:torneos,id'],
+        ]);
+
+        $torneo = Torneo::findOrFail($request->input('torneo_id'));
+        $this->grupoService->sortear($torneo);
+
+        return back()->with('success', 'Grupos sorteados correctamente.');
+    }
+
+    public function asignarGrupo(Request $request, EquipoTorneo $inscripcion)
+    {
+        $request->validate([
+            'grupo_id' => ['nullable', 'integer', 'exists:grupos,id'],
+        ]);
+
+        $grupoId = $request->filled('grupo_id') ? (int) $request->input('grupo_id') : null;
+        $this->grupoService->asignar($inscripcion, $grupoId);
+
+        return back()->with('success', 'Grupo actualizado correctamente.');
+    }
 
     /**
      * Endpoint AJAX para el buscador asíncrono de React
@@ -81,4 +111,17 @@ class InscripcionController extends Controller
 
         return response()->json($jugadores);
     }
+    public function jugadoresRoster(Request $request, EquipoTorneo $inscripcion)
+    {
+        $perPage = min(max((int) $request->input('per_page', 10), 5), 50);
+
+        return response()->json(
+            $this->service->paginarJugadoresParaRoster(
+                $inscripcion->id,
+                (string) $request->input('search', ''),
+                $perPage
+            )
+        );
+}
+
 }

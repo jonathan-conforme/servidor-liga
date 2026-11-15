@@ -25,7 +25,7 @@ class StoreEventoPartidoRequest extends FormRequest
         return [
             'tipo' => [
                 'required',
-                Rule::in(['INICIO', 'ENTRETIEMPO', 'GOL', 'AUTOGOL', 'AMARILLA', 'ROJA', 'CAMBIO', 'FIN']),
+                Rule::in(['INICIO', 'ENTRETIEMPO', 'GOL', 'AUTOGOL', 'AMARILLA', 'ROJA', 'CAMBIO', 'FIN', 'PENAL_ANOTADO', 'PENAL_FALLADO', 'FIN_PENALES']),
             ],
             'minuto'             => ['nullable', 'integer', 'min:0', 'max:130'],
             'equipo_id'          => ['nullable', 'integer', $equipoDelTenant],

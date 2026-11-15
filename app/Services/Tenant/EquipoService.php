@@ -9,7 +9,7 @@ class EquipoService
 {
     public function index()
     {
-        return Equipo::latest()->paginate(5);
+        return Equipo::latest()->paginate(15);
     }
 
     public function create(array $data)

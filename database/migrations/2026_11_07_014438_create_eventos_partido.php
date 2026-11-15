@@ -15,8 +15,19 @@ return new class extends Migration
             $table->id();
             $table->foreignId('tenant_id')->constrained('tenants')->onDelete('cascade');
             $table->foreignId('partido_id')->constrained('partidos')->cascadeOnDelete();
-            
-            $table->enum('tipo', ['INICIO', 'ENTRETIEMPO', 'GOL', 'AUTOGOL', 'AMARILLA', 'ROJA', 'CAMBIO', 'FIN']);
+
+            $table->enum('tipo', [
+                'INICIO',
+                'ENTRETIEMPO',
+                'GOL',
+                'AUTOGOL',
+                'AMARILLA',
+                'ROJA',
+                'CAMBIO',
+                'FIN',
+                'PENAL_ANOTADO',
+                'PENAL_FALLADO',
+                'FIN_PENALES', ]);
             $table->integer('minuto')->nullable();
 
             // Relaciones dinámicas

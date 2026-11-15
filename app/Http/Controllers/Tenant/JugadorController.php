@@ -23,7 +23,7 @@ class JugadorController extends Controller
     public function index(): Response
     {
         return Inertia::render('Tenant/Jugadores/Index', [
-            'jugadores' => $this->jugadorService->index(10)
+            'jugadores' => $this->jugadorService->index(15)
         ]);
     }
 

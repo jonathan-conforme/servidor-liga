@@ -24,10 +24,11 @@ return new class extends Migration
             $table->string('fase', 20)->default('REGULAR');
             $table->dateTime('fecha_partido')->nullable(); // Hora exacta del cotejo
             $table->string('cancha')->nullable();
-
+            $table->unsignedSmallInteger('penales_local')->nullable();
+            $table->unsignedSmallInteger('penales_visitante')->nullable();
             $table->unsignedSmallInteger('goles_local')->nullable();
             $table->unsignedSmallInteger('goles_visitante')->nullable();
-            $table->enum('estado', ['PROGRAMADO', 'EN_JUEGO', 'ENTRETIEMPO', 'FINALIZADO', 'SUSPENDIDO'])->default('PROGRAMADO');
+            $table->enum('estado', ['PROGRAMADO', 'EN_JUEGO', 'ENTRETIEMPO','EN_PENALES', 'FINALIZADO', 'SUSPENDIDO'])->default('PROGRAMADO');
             $table->timestamps();
 
             $table->index(['torneo_id', 'categoria_id', 'grupo_id']);

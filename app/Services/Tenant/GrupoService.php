@@ -69,9 +69,17 @@ class GrupoService
 
     private function exigirSinFixture(int $torneoId): void
     {
-        if (Partido::where('torneo_id', $torneoId)->exists()) {
+        $hayPartidosJugados = Partido::where('torneo_id', $torneoId)
+            ->where(function ($q) {
+                $q->where('estado', '!=', 'PROGRAMADO')
+                  ->orWhereNotNull('goles_local')
+                  ->orWhereNotNull('goles_visitante');
+            })
+            ->exists();
+
+        if ($hayPartidosJugados) {
             throw ValidationException::withMessages([
-                'grupos' => 'El fixture ya fue generado. Regénéralo antes de cambiar los grupos.',
+                'grupos' => 'No se pueden cambiar los grupos: el torneo ya tiene partidos jugados o con marcador.',
             ]);
         }
     }

@@ -18,6 +18,8 @@ class Partido extends Model
         'fecha_partido' => 'datetime',
         'goles_local' => 'integer',
         'goles_visitante' => 'integer',
+        'penales_local'     => 'integer',
+        'penales_visitante' => 'integer',
     ];
 
     public function torneo(): BelongsTo
@@ -47,7 +49,15 @@ class Partido extends Model
             ->withTimestamps();
     }
     public function eventos(): HasMany
-{
-    return $this->hasMany(EventoPartido::class)->orderBy('id', 'asc');
-}
+    {
+        return $this->hasMany(EventoPartido::class)->orderBy('id', 'asc');
+    }
+    public function grupo()
+    {
+        return $this->belongsTo(Grupo::class);
+    }
+    public function categoria()
+    {
+        return $this->belongsTo(Categoria::class);
+    }
 }

@@ -28,6 +28,8 @@ class UpdatePartidoRequest extends FormRequest
             'cancha' => ['nullable', 'string', 'max:150'],
             'goles_local' => ['nullable', 'required_if:estado,FINALIZADO', 'integer', 'min:0'],
             'goles_visitante' => ['nullable', 'required_if:estado,FINALIZADO', 'integer', 'min:0'],
+            'penales_local'     => ['nullable', 'integer', 'min:0', 'max:99'],
+            'penales_visitante' => ['nullable', 'integer', 'min:0', 'max:99'],
             'estado' => ['required', 'string', Rule::in(['PROGRAMADO', 'EN_JUEGO', 'FINALIZADO', 'SUSPENDIDO'])],
         ];
     }
